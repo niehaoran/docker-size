@@ -30,7 +30,7 @@ docker run -d --name docker-size -p 8000:8000 docker-size-service
 
 ## API 使用方法
 
-### 查询镜像信息
+### 查询镜像完整信息
 
 **请求**:
 
@@ -58,6 +58,34 @@ GET /image-info?image=nginx:latest
   "raw_data": {
     // 完整的 skopeo 返回数据
   }
+}
+```
+
+### 仅查询镜像大小
+
+**请求**:
+
+```
+GET /image-size?image=nginx:latest
+```
+
+**参数**:
+
+- `image`: 镜像名称（必须，格式为 `name:tag` 或 `name`，如果不指定标签，将使用 `latest`）
+- `username`: 私有仓库用户名（可选，优先于环境变量）
+- `password`: 私有仓库密码（可选，优先于环境变量）
+- `proxy`: 代理地址（可选，优先于环境变量）
+
+**响应示例**:
+
+```json
+{
+  "status": "success",
+  "image": "nginx:latest",
+  "compressed_size": 54321,
+  "compressed_size_mb": 52.07,
+  "estimated_uncompressed_size": 92345,
+  "estimated_uncompressed_size_mb": 88.52
 }
 ```
 
