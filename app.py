@@ -64,10 +64,6 @@ def image_info():
         env['HTTP_PROXY'] = proxy
         logger.info(f"使用代理: {proxy}")
     
-    # 打印环境变量，帮助调试
-    logger.debug(f"环境变量 HTTPS_PROXY={env.get('HTTPS_PROXY', '未设置')}")
-    logger.debug(f"环境变量 HTTP_PROXY={env.get('HTTP_PROXY', '未设置')}")
-    
     try:
         # 调用skopeo获取镜像信息
         cmd = ['skopeo', 'inspect']
@@ -96,11 +92,7 @@ def image_info():
                     'status': 'error',
                     'message': f'权限不足或镜像不存在: {image}',
                     'error': process.stderr,
-                    'command': ' '.join(cmd),
-                    'proxy_settings': {
-                        'https_proxy': env.get('HTTPS_PROXY', '未设置'),
-                        'http_proxy': env.get('HTTP_PROXY', '未设置')
-                    }
+                    'command': ' '.join(cmd)
                 }), 404
             else:
                 logger.error(f"获取镜像信息失败: {image}")
@@ -108,11 +100,7 @@ def image_info():
                     'status': 'error',
                     'message': f'获取镜像信息失败: {image}',
                     'error': process.stderr,
-                    'command': ' '.join(cmd),
-                    'proxy_settings': {
-                        'https_proxy': env.get('HTTPS_PROXY', '未设置'),
-                        'http_proxy': env.get('HTTP_PROXY', '未设置')
-                    }
+                    'command': ' '.join(cmd)
                 }), 500
         
         # 解析JSON结果
@@ -164,17 +152,11 @@ def image_info():
         return jsonify({
             'status': 'error',
             'message': f'处理异常: {str(e)}',
-            'traceback': error_traceback,
-            'proxy_settings': {
-                'https_proxy': env.get('HTTPS_PROXY', '未设置'),
-                'http_proxy': env.get('HTTP_PROXY', '未设置')
-            }
+            'traceback': error_traceback
         }), 500
 
 if __name__ == '__main__':
     # 打印启动信息
     logger.info("Docker镜像大小查询服务启动中...")
-    logger.info(f"HTTPS_PROXY环境变量: {os.environ.get('HTTPS_PROXY', '未设置')}")
-    logger.info(f"HTTP_PROXY环境变量: {os.environ.get('HTTP_PROXY', '未设置')}")
     
     app.run(host='0.0.0.0', port=8000) 
