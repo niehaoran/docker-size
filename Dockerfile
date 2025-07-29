@@ -12,13 +12,20 @@ WORKDIR /app
 # 复制应用代码
 COPY app.py .
 COPY requirements.txt .
+COPY start.sh .
+
+# 确保启动脚本可执行
+RUN chmod +x start.sh
 
 # 安装Python依赖
 RUN pip3 install --no-cache-dir -r requirements.txt \
     && pip3 install --no-cache-dir pysocks requests[socks]
 
+# 确保 Python 可执行文件路径正确
+ENV PATH="/usr/bin:${PATH}"
+
 # 暴露端口
 EXPOSE 8000
 
-# 启动服务
-CMD ["python3", "app.py"] 
+# 使用启动脚本
+CMD ["./start.sh"] 
