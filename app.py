@@ -106,41 +106,73 @@ def get_image_data(image, username=None, password=None, proxy=None):
 
 def calculate_image_size(result):
     """计算镜像大小的辅助函数"""
-    # 提取层信息，如果不存在，记录日志并返回0
-    layers_data = result.get('LayersData', [])
-    
-    if not layers_data:
-        logger.warning("没有找到LayersData字段，尝试其他方法计算大小...")
-        # 尝试从config.history中获取大小（某些skopeo版本可能使用这种格式）
-        if 'config' in result and 'history' in result['config']:
-            logger.debug("尝试从config.history计算大小")
-            # 这里可以添加备选的计算逻辑
-    
     # 打印原始数据，帮助调试
     logger.debug(f"原始镜像数据: {json.dumps(result, indent=2)}")
     
-    # 计算压缩大小
+    # 初始化大小变量
     compressed_size = 0
-    for layer in layers_data:
-        layer_size = layer.get('Size', 0)
-        logger.debug(f"图层大小: {layer_size}")
-        compressed_size += layer_size
-    
-    # 计算未压缩大小
     uncompressed_size = 0
-    for layer in layers_data:
-        if 'UncompressedSize' in layer:
-            uncompressed_size += layer.get('UncompressedSize', 0)
     
-    # 如果未压缩大小为0，尝试从其他字段获取
-    if uncompressed_size == 0 and compressed_size > 0:
-        # 查看是否有其他字段包含未压缩大小信息
+    # 方法1: 尝试从LayersData获取（部分skopeo版本）
+    layers_data = result.get('LayersData', [])
+    if layers_data:
+        logger.info("从LayersData字段计算大小")
         for layer in layers_data:
-            for key, value in layer.items():
-                if 'uncompressed' in key.lower() and isinstance(value, (int, float)) and value > 0:
-                    logger.debug(f"从{key}字段找到未压缩大小: {value}")
-                    uncompressed_size += value
+            layer_size = layer.get('Size', 0)
+            logger.debug(f"图层大小: {layer_size}")
+            compressed_size += layer_size
+            
+            # 计算未压缩大小
+            if 'UncompressedSize' in layer:
+                uncompressed_size += layer.get('UncompressedSize', 0)
     
+    # 方法2: 如果没有LayersData，尝试从digest获取大小
+    elif 'Layers' in result:
+        logger.info("从manifest和config计算大小")
+        # 使用同样的skopeo命令，但添加--raw参数获取原始manifest
+        image = result.get('Name', '').replace('docker://', '')
+        if image:
+            try:
+                # 获取manifest
+                cmd = ['skopeo', 'inspect', '--raw', f'docker://{image}']
+                logger.debug(f"执行命令获取原始manifest: {' '.join(cmd)}")
+                
+                manifest_process = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True
+                )
+                
+                if manifest_process.returncode == 0:
+                    manifest = json.loads(manifest_process.stdout)
+                    
+                    # 从manifest中获取层大小
+                    if 'layers' in manifest:
+                        for layer in manifest.get('layers', []):
+                            if 'size' in layer:
+                                size = layer.get('size', 0)
+                                logger.debug(f"从manifest获取图层大小: {size}")
+                                compressed_size += size
+                    
+                    # 如果是v1格式的manifest
+                    elif 'fsLayers' in manifest and 'history' in manifest:
+                        logger.debug("检测到v1格式的manifest")
+                        # 这种格式需要进一步处理
+                        # 由于v1格式不直接包含大小信息，可能需要其他方法
+            except Exception as e:
+                logger.error(f"获取manifest时出错: {str(e)}")
+    
+    # 方法3: 如果存在Size字段（某些skopeo版本）
+    if compressed_size == 0 and 'Size' in result:
+        logger.info("从顶层Size字段获取大小")
+        compressed_size = result.get('Size', 0)
+    
+    # 如果未压缩大小仍为0，但我们有压缩大小，则估算未压缩大小
+    if uncompressed_size == 0 and compressed_size > 0:
+        logger.info("估算未压缩大小（使用1.7倍系数）")
+        uncompressed_size = compressed_size * 1.7
+    
+    logger.info(f"计算结果 - 压缩大小: {compressed_size} 字节, 未压缩/估算大小: {uncompressed_size} 字节")
     return compressed_size, uncompressed_size
 
 @app.route('/image-size')

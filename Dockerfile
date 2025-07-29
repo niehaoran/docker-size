@@ -1,8 +1,14 @@
+# Stage 1: 从quay.io/skopeo/stable复制skopeo二进制文件
+FROM quay.io/skopeo/stable:latest as skopeo_builder
+
+# Stage 2: 构建我们的应用
 FROM python:3.9-slim
+
+# 从builder阶段复制skopeo二进制文件
+COPY --from=skopeo_builder /usr/bin/skopeo /usr/local/bin/skopeo
 
 # 安装依赖
 RUN apt-get update && apt-get install -y \
-    skopeo \
     jq \
     bc \
     curl \
