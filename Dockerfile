@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y \
     skopeo \
     jq \
     bc \
+    curl \
+    python3-socks \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -14,7 +16,8 @@ COPY app.py .
 COPY requirements.txt .
 
 # 安装Python依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir pysocks requests[socks]
 
 # 暴露端口
 EXPOSE 8000
