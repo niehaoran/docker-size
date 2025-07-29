@@ -1,23 +1,9 @@
-# Stage 1: 从quay.io/skopeo/stable复制skopeo二进制文件
-FROM quay.io/skopeo/stable:latest as skopeo_builder
+# 放弃多阶段构建，直接使用skopeo镜像
+FROM quay.io/skopeo/stable:latest
 
-# 查找libsubid.so.5所在路径
-RUN find / -name "libsubid.so*" | xargs -I {} ls -l {}
-
-# Stage 2: 构建我们的应用
-FROM python:3.9-slim
-
-# 安装uidmap包，它包含libsubid库
-RUN apt-get update && apt-get install -y \
-    uidmap \
-    jq \
-    bc \
-    curl \
-    python3-socks \
-    && rm -rf /var/lib/apt/lists/*
-
-# 从builder阶段复制skopeo二进制文件
-COPY --from=skopeo_builder /usr/bin/skopeo /usr/local/bin/skopeo
+# 安装Python和其他需要的依赖
+RUN dnf install -y python3 python3-pip jq bc curl && \
+    dnf clean all
 
 WORKDIR /app
 
@@ -26,11 +12,14 @@ COPY app.py .
 COPY requirements.txt .
 
 # 安装Python依赖
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir pysocks requests[socks]
+RUN pip3 install --no-cache-dir -r requirements.txt \
+    && pip3 install --no-cache-dir pysocks requests[socks]
 
 # 暴露端口
 EXPOSE 8000
 
+# 确保skopeo可用
+RUN which skopeo && skopeo --version
+
 # 启动服务
-CMD ["python", "app.py"] 
+CMD ["python3", "app.py"] 
