@@ -104,6 +104,45 @@ def get_image_data(image, username=None, password=None, proxy=None):
         'result': result
     }
 
+def calculate_image_size(result):
+    """计算镜像大小的辅助函数"""
+    # 提取层信息，如果不存在，记录日志并返回0
+    layers_data = result.get('LayersData', [])
+    
+    if not layers_data:
+        logger.warning("没有找到LayersData字段，尝试其他方法计算大小...")
+        # 尝试从config.history中获取大小（某些skopeo版本可能使用这种格式）
+        if 'config' in result and 'history' in result['config']:
+            logger.debug("尝试从config.history计算大小")
+            # 这里可以添加备选的计算逻辑
+    
+    # 打印原始数据，帮助调试
+    logger.debug(f"原始镜像数据: {json.dumps(result, indent=2)}")
+    
+    # 计算压缩大小
+    compressed_size = 0
+    for layer in layers_data:
+        layer_size = layer.get('Size', 0)
+        logger.debug(f"图层大小: {layer_size}")
+        compressed_size += layer_size
+    
+    # 计算未压缩大小
+    uncompressed_size = 0
+    for layer in layers_data:
+        if 'UncompressedSize' in layer:
+            uncompressed_size += layer.get('UncompressedSize', 0)
+    
+    # 如果未压缩大小为0，尝试从其他字段获取
+    if uncompressed_size == 0 and compressed_size > 0:
+        # 查看是否有其他字段包含未压缩大小信息
+        for layer in layers_data:
+            for key, value in layer.items():
+                if 'uncompressed' in key.lower() and isinstance(value, (int, float)) and value > 0:
+                    logger.debug(f"从{key}字段找到未压缩大小: {value}")
+                    uncompressed_size += value
+    
+    return compressed_size, uncompressed_size
+
 @app.route('/image-size')
 def image_size():
     """仅返回镜像压缩大小和预估实际大小的API端点"""
@@ -134,13 +173,9 @@ def image_size():
                 'error': data.get('error')
             }), data['code']
         
-        # 从结果中提取层信息
+        # 从结果中计算大小
         result = data['result']
-        layersData = result.get('LayersData', [])
-        
-        # 计算压缩和未压缩大小
-        compressed_size = sum(layer.get('Size', 0) for layer in layersData)
-        uncompressed_size = sum(layer.get('UncompressedSize', 0) for layer in layersData if 'UncompressedSize' in layer)
+        compressed_size, uncompressed_size = calculate_image_size(result)
         
         # 计算人类可读格式
         compressed_mb = compressed_size / 1024 / 1024
@@ -210,13 +245,9 @@ def image_info():
                 'error': data.get('error')
             }), data['code']
         
-        # 从结果中提取层信息
+        # 从结果中计算大小
         result = data['result']
-        layersData = result.get('LayersData', [])
-        
-        # 计算压缩和未压缩大小
-        compressed_size = sum(layer.get('Size', 0) for layer in layersData)
-        uncompressed_size = sum(layer.get('UncompressedSize', 0) for layer in layersData if 'UncompressedSize' in layer)
+        compressed_size, uncompressed_size = calculate_image_size(result)
         
         # 计算人类可读格式
         compressed_mb = compressed_size / 1024 / 1024
