@@ -27,5 +27,5 @@ ENV PATH="/usr/bin:${PATH}"
 # 暴露端口
 EXPOSE 8000
 
-# 使用启动脚本
-CMD ["./start.sh"] 
+# 使用启动脚本 - 使用 shell 形式确保在 shell 中执行
+CMD /bin/bash ./start.sh 
