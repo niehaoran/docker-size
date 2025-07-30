@@ -24,6 +24,9 @@ RUN pip3 install --no-cache-dir -r requirements.txt \
 # 确保 Python 可执行文件路径正确
 ENV PATH="/usr/bin:${PATH}"
 
+# API认证环境变量（可选）
+# ENV API_KEY="your-secret-api-key"
+
 # 暴露端口
 EXPOSE 8000
 

@@ -7,6 +7,13 @@ echo "Skopeo 版本: $(skopeo --version 2>&1)"
 echo "当前工作目录: $(pwd)"
 echo "Python 路径: $(which python3 2>&1)"
 
+# 检查API认证配置
+if [ -n "$API_KEY" ]; then
+    echo "API认证: 已启用 (API_KEY已设置)"
+else
+    echo "API认证: 未启用 (API_KEY未设置)"
+fi
+
 # 确保 skopeo 命令可用
 if ! command -v skopeo &> /dev/null; then
     echo "错误: skopeo 命令不可用"

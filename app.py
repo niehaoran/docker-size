@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 import subprocess
 import json
 import os
@@ -9,6 +9,7 @@ import re
 import logging
 import traceback
 import sys
+import functools
 
 # 配置日志
 logging.basicConfig(
@@ -22,13 +23,43 @@ logger = logging.getLogger('docker-size')
 
 app = Flask(__name__)
 
+# 读取API认证密码
+API_KEY = os.environ.get('API_KEY', '')
+logger.info(f"API认证{'已配置' if API_KEY else '未配置'}")
+
+# API认证装饰器
+def require_api_key(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 如果没有设置API_KEY，则不进行认证
+        if not API_KEY:
+            return f(*args, **kwargs)
+        
+        # 从请求中获取api_key
+        api_key = request.args.get('api_key', '')
+        
+        # 验证API密钥
+        if api_key != API_KEY:
+            logger.warning(f"API认证失败: 提供的API密钥不正确")
+            return jsonify({
+                'status': 'error',
+                'message': 'API认证失败: 无效的API密钥'
+            }), 401
+            
+        return f(*args, **kwargs)
+    return decorated_function
+
 @app.route('/')
 def index():
-    return '''
+    api_info = "需要API密钥进行认证" if API_KEY else "无需认证"
+    api_param = "&api_key=您的API密钥" if API_KEY else ""
+    
+    return f'''
     <h1>Docker镜像大小查询服务</h1>
-    <p>使用方法: /image-info?image=镜像名:标签</p>
-    <p>例如: <a href="/image-info?image=nginx:latest">/image-info?image=nginx:latest</a></p>
-    <p>仅查询大小: <a href="/image-size?image=nginx:latest">/image-size?image=nginx:latest</a></p>
+    <p>使用方法: /image-info?image=镜像名:标签{api_param}</p>
+    <p>例如: <a href="/image-info?image=nginx:latest{api_param}">/image-info?image=nginx:latest</a></p>
+    <p>仅查询大小: <a href="/image-size?image=nginx:latest{api_param}">/image-size?image=nginx:latest</a></p>
+    <p>API认证: {api_info}</p>
     '''
 
 def get_image_data(image, username=None, password=None, proxy=None):
@@ -176,6 +207,7 @@ def calculate_image_size(result):
     return compressed_size, uncompressed_size
 
 @app.route('/image-size')
+@require_api_key
 def image_size():
     """仅返回镜像压缩大小和预估实际大小的API端点"""
     # 获取请求参数
@@ -249,6 +281,7 @@ def image_size():
         }), 500
 
 @app.route('/image-info')
+@require_api_key
 def image_info():
     # 获取请求参数
     image = request.args.get('image', '')
