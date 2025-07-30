@@ -60,15 +60,23 @@ GET /image-info?image=nginx:latest&api_key=your-api-key
 GET /image-tags?image=nginx&api_key=your-api-key
 ```
 
+或者使用前缀筛选标签:
+
+```
+GET /image-tags?image=nginx:1.21&api_key=your-api-key
+```
+
 **参数**:
 
-- `image`: 镜像名称（必须，不包含标签）
+- `image`: 镜像名称，有两种格式:
+  - `name` - 获取所有标签
+  - `name:prefix` - 获取所有以prefix开头的标签
 - `api_key`: API访问密钥（如果设置了API_KEY环境变量，则此参数必须）
 - `username`: 私有仓库用户名（可选，优先于环境变量）
 - `password`: 私有仓库密码（可选，优先于环境变量）
 - `proxy`: 代理地址（可选，优先于环境变量）
 
-**响应示例**:
+**响应示例** (全部标签):
 
 ```json
 {
@@ -82,6 +90,26 @@ GET /image-tags?image=nginx&api_key=your-api-key
     "alpine",
     "stable",
     ...
+  ]
+}
+```
+
+**响应示例** (前缀过滤，例如 nginx:1.21):
+
+```json
+{
+  "status": "success",
+  "image": "nginx",
+  "tag_count": 7,
+  "original_tag_count": 256,
+  "tags": [
+    "1.21",
+    "1.21.0",
+    "1.21.1",
+    "1.21.3",
+    "1.21.4",
+    "1.21.5",
+    "1.21.6"
   ]
 }
 ```

@@ -79,7 +79,7 @@ def index():
     <h2>API端点</h2>
     <p>查询镜像详情: <a href="/image-info?image=nginx:latest{api_param}">/image-info?image=nginx:latest</a></p>
     <p>仅查询大小: <a href="/image-size?image=nginx:latest{api_param}">/image-size?image=nginx:latest</a></p>
-    <p>查询镜像标签列表: <a href="/image-tags?image=nginx{api_param}">/image-tags?image=nginx</a></p>
+    <p>查询镜像标签列表: <a href="/image-tags?image=nginx{api_param}">/image-tags?image=nginx</a> 或 <a href="/image-tags?image=nginx:1.21{api_param}">/image-tags?image=nginx:1.21</a>（前缀筛选）</p>
     <p>查询特定标签详情: <a href="/tag-info?image=nginx:latest{api_param}">/tag-info?image=nginx:latest</a></p>
     <p>API认证: {api_info}</p>
     <hr>
@@ -671,6 +671,14 @@ def image_tags():
             'message': '请提供镜像名称，例如：/image-tags?image=nginx'
         }), 400
     
+    # 检查是否有标签前缀过滤
+    tag_prefix = None
+    if ':' in image:
+        image_parts = image.split(':', 1)
+        image = image_parts[0]
+        tag_prefix = image_parts[1]
+        logger.info(f"检测到标签前缀过滤: {tag_prefix}")
+    
     logger.info(f"开始处理镜像标签请求: {image}")
     
     # 生成缓存键用于日志
@@ -696,6 +704,15 @@ def image_tags():
                 'message': data.get('message'),
                 'error': data.get('error')
             }), data.get('code', 500)
+        
+        # 如果有标签前缀，过滤标签列表
+        if tag_prefix:
+            filtered_tags = [tag for tag in data['tags'] if tag.startswith(tag_prefix)]
+            original_count = len(data['tags'])
+            data['original_tag_count'] = original_count
+            data['tags'] = filtered_tags
+            data['tag_count'] = len(filtered_tags)
+            logger.info(f"根据前缀 '{tag_prefix}' 过滤标签: 从 {original_count} 个标签中筛选出 {len(filtered_tags)} 个")
         
         # 添加缓存响应头
         resp = jsonify(data)
