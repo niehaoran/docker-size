@@ -268,7 +268,9 @@ def image_size():
     
     # 生成缓存键用于日志
     cache_key = make_cache_key()
-    cached = cache.has(cache_key)
+    # 检查是否已缓存，方法是尝试获取值并检查是否存在
+    cached_value = cache.get(cache_key)
+    cached = cached_value is not None
     logger.info(f"缓存状态: {'命中' if cached else '未命中'}")
     
     try:
@@ -320,7 +322,9 @@ def image_size():
         
         # 添加缓存响应头
         resp = jsonify(response)
-        resp.headers['X-Cache-Status'] = 'HIT' if cache.has(make_cache_key()) else 'MISS'
+        # 正确的缓存状态检查
+        is_cached = cache.get(make_cache_key()) is not None
+        resp.headers['X-Cache-Status'] = 'HIT' if is_cached else 'MISS'
         resp.headers['X-Cache-TTL'] = str(cache_config["CACHE_DEFAULT_TIMEOUT"])
         resp.headers['X-Cache-Type'] = cache_config["CACHE_TYPE"]
         return resp
@@ -352,7 +356,9 @@ def image_info():
     
     # 生成缓存键用于日志
     cache_key = make_cache_key()
-    cached = cache.has(cache_key)
+    # 检查是否已缓存，方法是尝试获取值并检查是否存在
+    cached_value = cache.get(cache_key)
+    cached = cached_value is not None
     logger.info(f"缓存状态: {'命中' if cached else '未命中'}")
     
     try:
@@ -405,7 +411,9 @@ def image_info():
         
         # 添加缓存响应头
         resp = jsonify(response)
-        resp.headers['X-Cache-Status'] = 'HIT' if cache.has(make_cache_key()) else 'MISS'
+        # 正确的缓存状态检查
+        is_cached = cache.get(make_cache_key()) is not None
+        resp.headers['X-Cache-Status'] = 'HIT' if is_cached else 'MISS'
         resp.headers['X-Cache-TTL'] = str(cache_config["CACHE_DEFAULT_TIMEOUT"])
         resp.headers['X-Cache-Type'] = cache_config["CACHE_TYPE"]
         return resp
