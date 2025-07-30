@@ -10,6 +10,8 @@ import logging
 import traceback
 import sys
 import functools
+import time
+from flask_caching import Cache
 
 # 配置日志
 logging.basicConfig(
@@ -22,6 +24,24 @@ logging.basicConfig(
 logger = logging.getLogger('docker-size')
 
 app = Flask(__name__)
+
+# 配置缓存
+cache_config = {
+    "CACHE_TYPE": os.environ.get("CACHE_TYPE", "simple"),  # 默认使用简单内存缓存
+    "CACHE_DEFAULT_TIMEOUT": int(os.environ.get("CACHE_TIMEOUT", 3600)),  # 默认缓存1小时
+}
+
+# 如果设置了Redis缓存
+if os.environ.get("CACHE_REDIS_URL"):
+    cache_config["CACHE_REDIS_URL"] = os.environ.get("CACHE_REDIS_URL")
+
+cache = Cache(config=cache_config)
+cache.init_app(app)
+
+# 日志输出缓存配置
+logger = logging.getLogger('docker-size')
+logger.info(f"缓存类型: {cache_config['CACHE_TYPE']}")
+logger.info(f"缓存超时: {cache_config['CACHE_DEFAULT_TIMEOUT']}秒")
 
 # 读取API认证密码
 API_KEY = os.environ.get('API_KEY', '')
@@ -60,6 +80,12 @@ def index():
     <p>例如: <a href="/image-info?image=nginx:latest{api_param}">/image-info?image=nginx:latest</a></p>
     <p>仅查询大小: <a href="/image-size?image=nginx:latest{api_param}">/image-size?image=nginx:latest</a></p>
     <p>API认证: {api_info}</p>
+    <hr>
+    <h2>缓存信息</h2>
+    <p>缓存类型: {cache_config["CACHE_TYPE"]}</p>
+    <p>缓存超时: {cache_config["CACHE_DEFAULT_TIMEOUT"]}秒</p>
+    <p>缓存状态: <a href="/cache-info{api_param}">查看缓存状态</a></p>
+    <p>清除缓存: <a href="/cache-clear{api_param}">清除所有缓存</a></p>
     '''
 
 def get_image_data(image, username=None, password=None, proxy=None):
@@ -135,6 +161,25 @@ def get_image_data(image, username=None, password=None, proxy=None):
         'result': result
     }
 
+def make_cache_key():
+    """生成缓存键的函数，考虑所有相关的请求参数"""
+    # 基本参数
+    image = request.args.get('image', '')
+    username = request.args.get('username', os.environ.get('IMAGE_USERNAME', ''))
+    password = request.args.get('password', os.environ.get('IMAGE_PASSWORD', ''))
+    proxy = request.args.get('proxy', os.environ.get('HTTPS_PROXY', ''))
+    
+    # 组合生成唯一键
+    key_parts = [
+        f"image:{image}",
+        f"username:{username}",  # 用户名会影响结果
+        # 不包含密码在缓存键中，因为相同用户名下，密码通常一致
+        f"proxy:{proxy}",  # 代理可能影响结果
+    ]
+    
+    # 生成唯一缓存键
+    return "|".join(key_parts)
+
 def calculate_image_size(result):
     """计算镜像大小的辅助函数"""
     # 打印原始数据，帮助调试
@@ -208,6 +253,7 @@ def calculate_image_size(result):
 
 @app.route('/image-size')
 @require_api_key
+@cache.cached(timeout=None, make_cache_key=make_cache_key)
 def image_size():
     """仅返回镜像压缩大小和预估实际大小的API端点"""
     # 获取请求参数
@@ -219,6 +265,11 @@ def image_size():
         }), 400
     
     logger.info(f"开始处理镜像大小请求: {image}")
+    
+    # 生成缓存键用于日志
+    cache_key = make_cache_key()
+    cached = cache.has(cache_key)
+    logger.info(f"缓存状态: {'命中' if cached else '未命中'}")
     
     try:
         # 获取可选参数
@@ -267,7 +318,12 @@ def image_size():
             response['estimated_uncompressed_size_mb'] = round(estimated_uncompressed_mb, 2)
             logger.info(f"镜像 {image} 估算未压缩大小: {estimated_uncompressed_mb:.2f}MB")
         
-        return jsonify(response)
+        # 添加缓存响应头
+        resp = jsonify(response)
+        resp.headers['X-Cache-Status'] = 'HIT' if cache.has(make_cache_key()) else 'MISS'
+        resp.headers['X-Cache-TTL'] = str(cache_config["CACHE_DEFAULT_TIMEOUT"])
+        resp.headers['X-Cache-Type'] = cache_config["CACHE_TYPE"]
+        return resp
         
     except Exception as e:
         # 捕获并记录所有异常，包括堆栈跟踪
@@ -282,6 +338,7 @@ def image_size():
 
 @app.route('/image-info')
 @require_api_key
+@cache.cached(timeout=None, make_cache_key=make_cache_key)
 def image_info():
     # 获取请求参数
     image = request.args.get('image', '')
@@ -292,6 +349,11 @@ def image_info():
         }), 400
     
     logger.info(f"开始处理镜像请求: {image}")
+    
+    # 生成缓存键用于日志
+    cache_key = make_cache_key()
+    cached = cache.has(cache_key)
+    logger.info(f"缓存状态: {'命中' if cached else '未命中'}")
     
     try:
         # 获取可选参数
@@ -341,7 +403,12 @@ def image_info():
             response['estimated_uncompressed_size_mb'] = round(estimated_uncompressed_mb, 2)
             logger.info(f"镜像 {image} 估算未压缩大小: {estimated_uncompressed_mb:.2f}MB")
         
-        return jsonify(response)
+        # 添加缓存响应头
+        resp = jsonify(response)
+        resp.headers['X-Cache-Status'] = 'HIT' if cache.has(make_cache_key()) else 'MISS'
+        resp.headers['X-Cache-TTL'] = str(cache_config["CACHE_DEFAULT_TIMEOUT"])
+        resp.headers['X-Cache-Type'] = cache_config["CACHE_TYPE"]
+        return resp
         
     except Exception as e:
         # 捕获并记录所有异常，包括堆栈跟踪
@@ -353,6 +420,48 @@ def image_info():
             'status': 'error',
             'message': f'处理异常: {str(e)}',
             'traceback': error_traceback
+        }), 500
+
+@app.route('/cache-info')
+@require_api_key
+def cache_info():
+    """获取缓存状态信息"""
+    # 尝试获取缓存状态
+    status = "active"
+    stats = {}
+    
+    try:
+        if hasattr(cache, 'get_stats'):
+            stats = cache.get_stats()
+        
+        return jsonify({
+            "status": "success",
+            "cache_type": cache_config["CACHE_TYPE"],
+            "cache_timeout": cache_config["CACHE_DEFAULT_TIMEOUT"],
+            "cache_stats": stats,
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"获取缓存信息失败: {str(e)}",
+        }), 500
+
+@app.route('/cache-clear')
+@require_api_key
+def cache_clear():
+    """清除缓存"""
+    try:
+        cache.clear()
+        logger.info("已清除所有缓存")
+        return jsonify({
+            "status": "success",
+            "message": "缓存已清除"
+        })
+    except Exception as e:
+        logger.error(f"清除缓存失败: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"清除缓存失败: {str(e)}"
         }), 500
 
 if __name__ == '__main__':

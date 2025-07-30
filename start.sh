@@ -14,6 +14,21 @@ else
     echo "API认证: 未启用 (API_KEY未设置)"
 fi
 
+# 输出缓存配置信息
+CACHE_TYPE=${CACHE_TYPE:-simple}
+CACHE_TIMEOUT=${CACHE_TIMEOUT:-3600}
+
+echo "缓存配置:"
+echo "  类型: $CACHE_TYPE"
+echo "  超时: ${CACHE_TIMEOUT}秒"
+if [ "$CACHE_TYPE" = "redis" ]; then
+    if [ -n "$CACHE_REDIS_URL" ]; then
+        echo "  Redis URL: $CACHE_REDIS_URL"
+    else
+        echo "  警告: CACHE_TYPE设置为redis但CACHE_REDIS_URL未设置"
+    fi
+fi
+
 # 确保 skopeo 命令可用
 if ! command -v skopeo &> /dev/null; then
     echo "错误: skopeo 命令不可用"

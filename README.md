@@ -28,6 +28,9 @@ docker run -d --name docker-size -p 8000:8000 docker-size-service
 - `IMAGE_USERNAME`: 私有仓库用户名
 - `IMAGE_PASSWORD`: 私有仓库密码
 - `HTTPS_PROXY`: HTTP代理地址
+- `CACHE_TYPE`: 缓存类型，可选值: simple(内存缓存), redis(Redis缓存), null(禁用缓存)，默认为simple
+- `CACHE_TIMEOUT`: 缓存过期时间，单位为秒，默认3600秒(1小时)
+- `CACHE_REDIS_URL`: Redis连接URL，当CACHE_TYPE=redis时必须设置
 
 ## API 使用方法
 
@@ -122,3 +125,47 @@ docker run -d --name docker-size -p 8000:8000 -e API_KEY="your-secret-key" docke
 ```
 
 如果未设置`API_KEY`环境变量，则不需要提供`api_key`参数。
+
+## 缓存功能
+
+本服务内置缓存功能，可以大幅提高查询速度，减少对Docker Registry的请求压力。
+
+### 缓存相关API
+
+**查看缓存状态**:
+
+```
+GET /cache-info?api_key=your-api-key
+```
+
+**清除缓存**:
+
+```
+GET /cache-clear?api_key=your-api-key
+```
+
+### 缓存配置
+
+缓存可以通过环境变量配置:
+
+```bash
+# 使用内存缓存（默认）
+docker run -d --name docker-size -p 8000:8000 -e CACHE_TIMEOUT=7200 docker-size-service
+
+# 使用Redis缓存
+docker run -d --name docker-size -p 8000:8000 \
+  -e CACHE_TYPE=redis \
+  -e CACHE_REDIS_URL=redis://redis-server:6379/0 \
+  docker-size-service
+  
+# 禁用缓存
+docker run -d --name docker-size -p 8000:8000 -e CACHE_TYPE=null docker-size-service
+```
+
+### 缓存响应头
+
+API响应包含以下与缓存相关的HTTP头:
+
+- `X-Cache-Status`: 表示缓存状态，`HIT`表示命中缓存，`MISS`表示未命中
+- `X-Cache-TTL`: 缓存生存时间（秒）
+- `X-Cache-Type`: 使用的缓存类型

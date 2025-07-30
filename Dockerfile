@@ -27,6 +27,11 @@ ENV PATH="/usr/bin:${PATH}"
 # API认证环境变量（可选）
 # ENV API_KEY="your-secret-api-key"
 
+# 缓存配置（可选）
+# ENV CACHE_TYPE=simple   # 可选值: simple, redis, null（禁用缓存）
+# ENV CACHE_TIMEOUT=3600  # 缓存过期时间，单位：秒
+# ENV CACHE_REDIS_URL=redis://localhost:6379/0  # 如果使用Redis缓存后端
+
 # 暴露端口
 EXPOSE 8000
 
