@@ -52,6 +52,80 @@ GET /image-info?image=nginx:latest&api_key=your-api-key
 - `password`: 私有仓库密码（可选，优先于环境变量）
 - `proxy`: 代理地址（可选，优先于环境变量）
 
+### 查询镜像标签列表
+
+**请求**:
+
+```
+GET /image-tags?image=nginx&api_key=your-api-key
+```
+
+**参数**:
+
+- `image`: 镜像名称（必须，不包含标签）
+- `api_key`: API访问密钥（如果设置了API_KEY环境变量，则此参数必须）
+- `username`: 私有仓库用户名（可选，优先于环境变量）
+- `password`: 私有仓库密码（可选，优先于环境变量）
+- `proxy`: 代理地址（可选，优先于环境变量）
+
+**响应示例**:
+
+```json
+{
+  "status": "success",
+  "image": "nginx",
+  "tag_count": 256,
+  "tags": [
+    "latest",
+    "1.21.0",
+    "1.20.2",
+    "alpine",
+    "stable",
+    ...
+  ]
+}
+```
+
+### 查询特定标签详细信息
+
+**请求**:
+
+```
+GET /tag-info?image=nginx:latest&api_key=your-api-key
+```
+
+**参数**:
+
+- `image`: 镜像名称（必须，格式为 `name:tag`，必须指定标签）
+- `api_key`: API访问密钥（如果设置了API_KEY环境变量，则此参数必须）
+- `username`: 私有仓库用户名（可选，优先于环境变量）
+- `password`: 私有仓库密码（可选，优先于环境变量）
+- `proxy`: 代理地址（可选，优先于环境变量）
+
+**响应示例**:
+
+```json
+{
+  "status": "success",
+  "image": "nginx:latest",
+  "compressed_size": 54321,
+  "compressed_size_mb": 52.07,
+  "created": "2025-07-14T22:07:26Z",
+  "architecture": "amd64",
+  "os": "linux",
+  "exposed_ports": [
+    "80/tcp"
+  ],
+  "environment": [
+    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "NGINX_VERSION=1.29.0"
+  ],
+  "layers_count": 7,
+  "uncompressed_size": 98765,
+  "uncompressed_size_mb": 94.20
+}
+```
+
 **响应示例**:
 
 ```json

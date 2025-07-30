@@ -76,9 +76,11 @@ def index():
     
     return f'''
     <h1>Docker镜像大小查询服务</h1>
-    <p>使用方法: /image-info?image=镜像名:标签{api_param}</p>
-    <p>例如: <a href="/image-info?image=nginx:latest{api_param}">/image-info?image=nginx:latest</a></p>
+    <h2>API端点</h2>
+    <p>查询镜像详情: <a href="/image-info?image=nginx:latest{api_param}">/image-info?image=nginx:latest</a></p>
     <p>仅查询大小: <a href="/image-size?image=nginx:latest{api_param}">/image-size?image=nginx:latest</a></p>
+    <p>查询镜像标签列表: <a href="/image-tags?image=nginx{api_param}">/image-tags?image=nginx</a></p>
+    <p>查询特定标签详情: <a href="/tag-info?image=nginx:latest{api_param}">/tag-info?image=nginx:latest</a></p>
     <p>API认证: {api_info}</p>
     <hr>
     <h2>缓存信息</h2>
@@ -288,6 +290,94 @@ def get_config_blob(registry_url, image_name, config_digest, username, password,
     except Exception as e:
         logger.error(f"获取配置blob异常: {str(e)}")
         return None
+
+def get_image_tags(image, username=None, password=None, proxy=None):
+    """获取镜像的所有标签"""
+    try:
+        # 确保镜像名不包含标签
+        if ':' in image:
+            image = image.split(':')[0]
+        
+        logger.info(f"开始获取镜像 {image} 的所有标签")
+        
+        # 获取认证信息（可选）
+        username = username or os.environ.get('IMAGE_USERNAME', '')
+        password = password or os.environ.get('IMAGE_PASSWORD', '')
+        creds = []
+        if username and password:
+            creds = ['--creds', f'{username}:{password}']
+            logger.info(f"使用认证信息: 用户名={username}")
+        
+        # 获取代理信息（可选）
+        proxy = proxy or os.environ.get('HTTPS_PROXY', '')
+        env = os.environ.copy()
+        if proxy:
+            env['HTTPS_PROXY'] = proxy
+            env['HTTP_PROXY'] = proxy
+            logger.info(f"使用代理: {proxy}")
+        
+        # 调用skopeo获取标签列表
+        cmd = ['skopeo', 'list-tags']
+        cmd.extend(creds)
+        cmd.append(f'docker://{image}')
+        
+        logger.info(f"执行命令: {' '.join(cmd)}")
+        
+        process = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True
+        )
+        
+        if process.returncode != 0:
+            # 详细记录错误信息
+            logger.error(f"获取标签列表失败，返回码: {process.returncode}")
+            logger.error(f"错误输出: {process.stderr}")
+            
+            # 检查常见错误
+            err = process.stderr.lower()
+            if any(msg in err for msg in ['unauthorized', 'forbidden', 'not found']):
+                logger.error(f"权限不足或镜像不存在: {image}")
+                return {
+                    'status': 'error',
+                    'code': 404,
+                    'message': f'权限不足或镜像不存在: {image}',
+                    'error': process.stderr,
+                    'command': ' '.join(cmd)
+                }
+            else:
+                logger.error(f"获取标签列表失败: {image}")
+                return {
+                    'status': 'error',
+                    'code': 500,
+                    'message': f'获取标签列表失败: {image}',
+                    'error': process.stderr,
+                    'command': ' '.join(cmd)
+                }
+        
+        # 解析JSON结果
+        result = json.loads(process.stdout)
+        tags = result.get('Tags', [])
+        logger.info(f"成功获取镜像 {image} 的标签，共 {len(tags)} 个")
+        
+        return {
+            'status': 'success',
+            'image': image,
+            'tag_count': len(tags),
+            'tags': tags
+        }
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.error(f"处理异常: {str(e)}")
+        logger.error(f"详细堆栈: {error_traceback}")
+        
+        return {
+            'status': 'error',
+            'code': 500,
+            'message': f'获取标签列表异常: {str(e)}',
+            'traceback': error_traceback
+        }
 
 def make_cache_key():
     """生成缓存键的函数，考虑所有相关的请求参数"""
@@ -546,6 +636,178 @@ def image_info():
             response['estimated_uncompressed_size'] = estimated_uncompressed
             response['estimated_uncompressed_size_mb'] = round(estimated_uncompressed_mb, 2)
             logger.info(f"镜像 {image} 估算未压缩大小: {estimated_uncompressed_mb:.2f}MB")
+        
+        # 添加缓存响应头
+        resp = jsonify(response)
+        # 正确的缓存状态检查
+        is_cached = cache.get(make_cache_key()) is not None
+        resp.headers['X-Cache-Status'] = 'HIT' if is_cached else 'MISS'
+        resp.headers['X-Cache-TTL'] = str(cache_config["CACHE_DEFAULT_TIMEOUT"])
+        resp.headers['X-Cache-Type'] = cache_config["CACHE_TYPE"]
+        return resp
+        
+    except Exception as e:
+        # 捕获并记录所有异常，包括堆栈跟踪
+        error_traceback = traceback.format_exc()
+        logger.error(f"处理异常: {str(e)}")
+        logger.error(f"详细堆栈: {error_traceback}")
+        
+        return jsonify({
+            'status': 'error',
+            'message': f'处理异常: {str(e)}',
+            'traceback': error_traceback
+        }), 500
+
+@app.route('/image-tags')
+@require_api_key
+@cache.cached(timeout=None, make_cache_key=make_cache_key)
+def image_tags():
+    """获取镜像的所有标签列表"""
+    # 获取请求参数
+    image = request.args.get('image', '')
+    if not image:
+        return jsonify({
+            'status': 'error',
+            'message': '请提供镜像名称，例如：/image-tags?image=nginx'
+        }), 400
+    
+    logger.info(f"开始处理镜像标签请求: {image}")
+    
+    # 生成缓存键用于日志
+    cache_key = make_cache_key()
+    # 检查是否已缓存，方法是尝试获取值并检查是否存在
+    cached_value = cache.get(cache_key)
+    cached = cached_value is not None
+    logger.info(f"缓存状态: {'命中' if cached else '未命中'}")
+    
+    try:
+        # 获取可选参数
+        username = request.args.get('username')
+        password = request.args.get('password')
+        proxy = request.args.get('proxy')
+        
+        # 调用函数获取标签列表
+        data = get_image_tags(image, username, password, proxy)
+        
+        # 检查是否出错
+        if data.get('status') == 'error':
+            return jsonify({
+                'status': 'error',
+                'message': data.get('message'),
+                'error': data.get('error')
+            }), data.get('code', 500)
+        
+        # 添加缓存响应头
+        resp = jsonify(data)
+        # 正确的缓存状态检查
+        is_cached = cache.get(make_cache_key()) is not None
+        resp.headers['X-Cache-Status'] = 'HIT' if is_cached else 'MISS'
+        resp.headers['X-Cache-TTL'] = str(cache_config["CACHE_DEFAULT_TIMEOUT"])
+        resp.headers['X-Cache-Type'] = cache_config["CACHE_TYPE"]
+        return resp
+        
+    except Exception as e:
+        # 捕获并记录所有异常，包括堆栈跟踪
+        error_traceback = traceback.format_exc()
+        logger.error(f"处理异常: {str(e)}")
+        logger.error(f"详细堆栈: {error_traceback}")
+        
+        return jsonify({
+            'status': 'error',
+            'message': f'处理异常: {str(e)}',
+            'traceback': error_traceback
+        }), 500
+
+@app.route('/tag-info')
+@require_api_key
+@cache.cached(timeout=None, make_cache_key=make_cache_key)
+def tag_info():
+    """获取特定镜像标签的详细信息"""
+    # 获取请求参数
+    image = request.args.get('image', '')
+    if not image:
+        return jsonify({
+            'status': 'error',
+            'message': '请提供镜像名称及标签，例如：/tag-info?image=nginx:latest'
+        }), 400
+    
+    # 确保镜像名包含标签
+    if ':' not in image:
+        return jsonify({
+            'status': 'error',
+            'message': '请提供完整的镜像名称和标签，例如：/tag-info?image=nginx:latest'
+        }), 400
+    
+    logger.info(f"开始处理标签详情请求: {image}")
+    
+    # 生成缓存键用于日志
+    cache_key = make_cache_key()
+    # 检查是否已缓存，方法是尝试获取值并检查是否存在
+    cached_value = cache.get(cache_key)
+    cached = cached_value is not None
+    logger.info(f"缓存状态: {'命中' if cached else '未命中'}")
+    
+    try:
+        # 获取可选参数
+        username = request.args.get('username')
+        password = request.args.get('password')
+        proxy = request.args.get('proxy')
+        
+        # 使用已有的image_info逻辑，直接调用get_image_data
+        data = get_image_data(image, username, password, proxy)
+        
+        # 检查是否出错
+        if data.get('status') == 'error':
+            return jsonify({
+                'status': 'error',
+                'message': data.get('message'),
+                'error': data.get('error')
+            }), data.get('code', 500)
+        
+        # 获取结果并计算大小
+        result = data['result']
+        compressed_size, uncompressed_size = calculate_image_size(result)
+        
+        # 计算人类可读格式
+        compressed_mb = compressed_size / 1024 / 1024
+        
+        logger.info(f"标签 {image} 压缩大小: {compressed_mb:.2f}MB")
+        
+        # 构建响应
+        response = {
+            'status': 'success',
+            'image': image,
+            'compressed_size': compressed_size,
+            'compressed_size_mb': round(compressed_mb, 2),
+            'created': result.get('Created', ''),
+            'architecture': result.get('Architecture', ''),
+            'os': result.get('Os', '')
+        }
+        
+        # 添加暴露端口信息到顶层响应中
+        if 'ExposedPorts' in result:
+            response['exposed_ports'] = result['ExposedPorts']
+            logger.info(f"添加暴露端口信息到响应: {result['ExposedPorts']}")
+        
+        # 添加环境变量
+        if 'Env' in result:
+            response['environment'] = result['Env']
+        
+        # 添加层信息
+        if 'Layers' in result:
+            response['layers_count'] = len(result['Layers'])
+        
+        # 如果有未压缩大小，添加到响应
+        if uncompressed_size > 0:
+            uncompressed_mb = uncompressed_size / 1024 / 1024
+            response['uncompressed_size'] = uncompressed_size
+            response['uncompressed_size_mb'] = round(uncompressed_mb, 2)
+        else:
+            # 估算未压缩大小
+            estimated_uncompressed = compressed_size * 1.7
+            estimated_uncompressed_mb = estimated_uncompressed / 1024 / 1024
+            response['estimated_uncompressed_size'] = estimated_uncompressed
+            response['estimated_uncompressed_size_mb'] = round(estimated_uncompressed_mb, 2)
         
         # 添加缓存响应头
         resp = jsonify(response)
