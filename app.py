@@ -156,10 +156,138 @@ def get_image_data(image, username=None, password=None, proxy=None):
     result = json.loads(process.stdout)
     logger.info(f"成功获取镜像信息: {image}")
     
+    # 尝试获取镜像配置以提取端口信息
+    exposed_ports = get_image_exposed_ports(image, username, password, proxy, env, creds)
+    if exposed_ports:
+        result['ExposedPorts'] = exposed_ports
+        logger.info(f"成功获取镜像暴露端口: {exposed_ports}")
+    
     return {
         'status': 'success',
         'result': result
     }
+
+def get_image_exposed_ports(image, username, password, proxy, env, creds):
+    """获取镜像暴露的端口信息"""
+    try:
+        # 获取镜像配置以提取端口信息
+        # 方法1: 尝试使用skopeo inspect --config
+        cmd = ['skopeo', 'inspect', '--config']
+        cmd.extend(creds)
+        cmd.append(f'docker://{image}')
+        
+        logger.info(f"获取镜像配置信息: {' '.join(cmd)}")
+        
+        process = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True
+        )
+        
+        if process.returncode == 0:
+            config = json.loads(process.stdout)
+            # 提取暴露端口信息
+            if 'config' in config and 'ExposedPorts' in config['config']:
+                # 将端口字典转换为列表，更易读
+                ports = list(config['config']['ExposedPorts'].keys())
+                return ports
+        
+        # 方法2: 如果上述方法失败，尝试使用Docker Registry API
+        # 通过manifest获取config digest，然后获取config blob
+        cmd_raw = ['skopeo', 'inspect', '--raw']
+        cmd_raw.extend(creds)
+        cmd_raw.append(f'docker://{image}')
+        
+        process_raw = subprocess.run(
+            cmd_raw,
+            env=env,
+            capture_output=True,
+            text=True
+        )
+        
+        if process_raw.returncode == 0:
+            manifest = json.loads(process_raw.stdout)
+            
+            # 从manifest中提取config digest
+            if 'config' in manifest and 'digest' in manifest['config']:
+                config_digest = manifest['config']['digest']
+                
+                # 使用config digest获取配置信息
+                registry_url = get_registry_url(image)
+                image_name = get_image_name(image)
+                
+                if registry_url and image_name:
+                    config_blob = get_config_blob(registry_url, image_name, config_digest, username, password, env)
+                    
+                    if config_blob and 'config' in config_blob and 'ExposedPorts' in config_blob['config']:
+                        ports = list(config_blob['config']['ExposedPorts'].keys())
+                        return ports
+        
+        # 如果都未找到，返回空列表
+        return []
+    except Exception as e:
+        logger.error(f"获取镜像端口信息失败: {str(e)}")
+        return []
+
+def get_registry_url(image):
+    """从镜像名中提取registry URL"""
+    if '/' in image:
+        parts = image.split('/')
+        if '.' in parts[0] or ':' in parts[0]:  # 如果包含域名或端口
+            return parts[0]
+    # 默认为Docker Hub
+    return "registry-1.docker.io"
+
+def get_image_name(image):
+    """从镜像名中提取镜像名称（不含registry和标签）"""
+    if '/' in image:
+        parts = image.split('/')
+        if '.' in parts[0] or ':' in parts[0]:  # 如果包含域名或端口
+            image = '/'.join(parts[1:])
+    
+    if ':' in image:
+        image = image.split(':')[0]
+    
+    # 处理Docker Hub官方镜像
+    if '/' not in image:
+        image = "library/" + image
+    
+    return image
+
+def get_config_blob(registry_url, image_name, config_digest, username, password, env):
+    """获取镜像配置blob"""
+    try:
+        import requests
+        
+        # 构建URL
+        url = f"https://{registry_url}/v2/{image_name}/blobs/{config_digest}"
+        
+        headers = {}
+        auth = None
+        
+        # 添加认证
+        if username and password:
+            auth = (username, password)
+        
+        # 设置代理
+        proxies = {}
+        if 'HTTPS_PROXY' in env:
+            proxies['https'] = env['HTTPS_PROXY']
+        if 'HTTP_PROXY' in env:
+            proxies['http'] = env['HTTP_PROXY']
+        
+        # 发送请求
+        response = requests.get(url, headers=headers, auth=auth, proxies=proxies, timeout=30)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"获取配置blob失败: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"获取配置blob异常: {str(e)}")
+        return None
 
 def make_cache_key():
     """生成缓存键的函数，考虑所有相关的请求参数"""
@@ -306,6 +434,11 @@ def image_size():
             'compressed_size_mb': round(compressed_mb, 2)
         }
         
+        # 添加暴露端口信息到顶层响应中，方便用户访问
+        if 'ExposedPorts' in result:
+            response['exposed_ports'] = result['ExposedPorts']
+            logger.info(f"添加暴露端口信息到响应: {result['ExposedPorts']}")
+        
         # 如果有未压缩大小，添加到响应
         if uncompressed_size > 0:
             uncompressed_mb = uncompressed_size / 1024 / 1024
@@ -394,6 +527,11 @@ def image_info():
             'compressed_size_mb': round(compressed_mb, 2),
             'raw_data': result
         }
+        
+        # 添加暴露端口信息到顶层响应中，方便用户访问
+        if 'ExposedPorts' in result:
+            response['exposed_ports'] = result['ExposedPorts']
+            logger.info(f"添加暴露端口信息到响应: {result['ExposedPorts']}")
         
         # 如果有未压缩大小，添加到响应
         if uncompressed_size > 0:

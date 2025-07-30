@@ -9,6 +9,8 @@
 - 支持代理设置
 - 返回完整的 skopeo 信息
 - 计算压缩和未压缩大小
+- 显示镜像暴露的端口信息(EXPOSE 指令)
+- 显示所有可用镜像标签
 
 ## 构建镜像
 
@@ -60,8 +62,11 @@ GET /image-info?image=nginx:latest&api_key=your-api-key
   "compressed_size_mb": 52.07,
   "uncompressed_size": 98765,
   "uncompressed_size_mb": 94.20,
+  "exposed_ports": [
+    "80/tcp"
+  ],
   "raw_data": {
-    // 完整的 skopeo 返回数据
+    // 完整的 skopeo 返回数据，包含所有标签和详细信息
   }
 }
 ```
@@ -90,6 +95,9 @@ GET /image-size?image=nginx:latest&api_key=your-api-key
   "image": "nginx:latest",
   "compressed_size": 54321,
   "compressed_size_mb": 52.07,
+  "exposed_ports": [
+    "80/tcp"
+  ],
   "estimated_uncompressed_size": 92345,
   "estimated_uncompressed_size_mb": 88.52
 }
